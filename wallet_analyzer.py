@@ -25,14 +25,9 @@ class WalletAnalyzer:
                 'platform': 'windows',
                 'mobile': False,
                 'desktop': True
-            },
-            debug=True,
-            # 添加以下設定
-            delay=10,  # 請求延遲
-            interpreter='nodejs'  # 使用 nodejs 解析器
+            }
         )
         
-        # 更新 headers
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'application/json, text/plain, */*',
@@ -40,13 +35,7 @@ class WalletAnalyzer:
             'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
             'Origin': 'https://gmgn.ai',
-            'Referer': 'https://gmgn.ai/',
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin',
-            'Cookie': 'cf_clearance=your_cf_clearance_cookie_here'  # 建議從瀏覽器中複製
+            'Referer': 'https://gmgn.ai/'
         }
     #====== 獲取代幣首次購買市值方法 ======
     def get_token_first_buy_marketcap(self, wallet_address, token_address):
