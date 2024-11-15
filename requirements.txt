@@ -2,3 +2,6 @@ streamlit
 pandas
 cloudscraper
 requests
+openpyxl
+concurrent-futures
+python-dateutil
