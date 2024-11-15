@@ -1,18 +1,16 @@
 #====== 導入所需套件 ======
-import time
-import random
+import streamlit as st
 import cloudscraper
-import requests
-from requests.exceptions import RequestException
-from datetime import datetime, timedelta
 import json
 import pandas as pd
+from datetime import datetime, timedelta
+from openpyxl.cell.cell import MergedCell
 import os
-import concurrent.futures
+import time
 import math
-import traceback
-import streamlit as st
-from requests.exceptions import HTTPError
+import random  # 新增這行
+import concurrent.futures
+from openpyxl import Workbook
 
 class ImprovedWalletAnalyzer:
     def __init__(self):
