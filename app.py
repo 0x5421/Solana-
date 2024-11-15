@@ -649,34 +649,52 @@ def main():
         if not addresses:
             st.error("請輸入至少一個有效的錢包地址")
             return
-
+    
         analyzer = WalletAnalyzer()
         last_address = None  # 記錄最後一個成功功分析的地址
         
         for address in addresses:
             with st.spinner(f'正在分析錢包 {address}...'):
-                transactions = analyzer.fetch_transactions(address)
-                if not transactions:
-                    st.warning(f"無法獲取錢包 {address} 的交易記錄")
+                try:
+                    st.write("開始發送請求...")
+                    transactions = analyzer.fetch_transactions(address)
+                    if isinstance(transactions, list):
+                        st.write(f"成功獲取交易數據，交易數量: {len(transactions)}")
+                    else:
+                        st.write(f"請求響應格式異常: {type(transactions)}")
+                    
+                    if not transactions:
+                        st.warning(f"無法獲取錢包 {address} 的交易記錄")
+                        continue
+    
+                    analysis = analyzer.analyze_transactions(transactions)
+                    st.write("完成基礎分析")
+                    
+                    token_analysis = analyzer.analyze_tokens_by_profit(address, transactions)
+                    st.write("完成代幣分析")
+                    
+                    advanced_results = analyzer.advanced_analysis(address, transactions, token_analysis)
+                    st.write("完成進階分析")
+                    
+                    # 保存分析結果到 session state
+                    st.session_state.analyzed_wallets[address] = {
+                        'analysis': analysis,
+                        'token_analysis': token_analysis,
+                        'advanced_results': advanced_results,
+                        'transactions': transactions
+                    }
+                    last_address = address
+                    
+                except Exception as e:
+                    st.error(f"分析錢包時發生錯誤: {str(e)}")
+                    import traceback
+                    st.error(f"詳細錯誤追蹤:\n{traceback.format_exc()}")
                     continue
-
-                analysis = analyzer.analyze_transactions(transactions)
-                token_analysis = analyzer.analyze_tokens_by_profit(address, transactions)
-                advanced_results = analyzer.advanced_analysis(address, transactions, token_analysis)
-                
-                # 保存分析結果到 session state
-                st.session_state.analyzed_wallets[address] = {
-                    'analysis': analysis,
-                    'token_analysis': token_analysis,
-                    'advanced_results': advanced_results,
-                    'transactions': transactions
-                }
-                last_address = address
-
-        # 分析完成後，設置最後一個地址為當前分析
-        if last_address:
-            st.session_state.current_analysis = last_address
-            st.rerun()  # 強制頁面重新運行
+    
+            # 分析完成後，設置最後一個地址為當前分析
+            if last_address:
+                st.session_state.current_analysis = last_address
+                st.rerun()  # 強制頁面重新運行
 
 if __name__ == "__main__":
     main()
