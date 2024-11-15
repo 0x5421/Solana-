@@ -1,73 +1,86 @@
 #====== 導入所需套件 ======
-import streamlit as st  # 新增這行在最上方
+import time
+import random
 import cloudscraper
+import requests
+from requests.exceptions import RequestException
+from datetime import datetime, timedelta
 import json
 import pandas as pd
-from datetime import datetime, timedelta
-from openpyxl.cell.cell import MergedCell
 import os
-import time
-import math  # 添加這行
 import concurrent.futures
-from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment, PatternFill, Border, Side, Color, NamedStyle, numbers
-from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.filters import AutoFilter
-from requests.exceptions import RequestException
-import requests
+import math
+import traceback
+import streamlit as st
+from requests.exceptions import HTTPError
 
-#====== 錢包分析器類初始化 ======
-class WalletAnalyzer:
+class ImprovedWalletAnalyzer:
     def __init__(self):
         self.session = None
         self.last_request_time = 0
         self.min_request_interval = 2  # 最小請求間隔（秒）
         self.max_retries = 5  # 最大重試次數
         self.base_delay = 3  # 基礎延遲時間（秒）
+        self.retry_count = 0  # 重試計數器
         self.initialize_session()
 
     def initialize_session(self):
         """初始化會話並進行必要的準備工作"""
-        self.session = cloudscraper.create_scraper(
-            browser={
-                'browser': 'chrome',
-                'platform': 'windows',
-                'desktop': True
-            },
-            debug=False
-        )
-        
-        # 更新請求頭，添加更多真實瀏覽器特徵
-        self.headers = {
-            'authority': 'gmgn.ai',
-            'accept': 'application/json, text/plain, */*',
-            'accept-language': 'en-US,en;q=0.9',
-            'cache-control': 'no-cache',
-            'origin': 'https://gmgn.ai',
-            'pragma': 'no-cache',
-            'referer': 'https://gmgn.ai/',
-            'sec-ch-ua': '"Chromium";v="118", "Google Chrome";v="118"',
-            'sec-ch-ua-mobile': '?0',
-            'sec-ch-ua-platform': '"Windows"',
-            'sec-fetch-dest': 'empty',
-            'sec-fetch-mode': 'cors',
-            'sec-fetch-site': 'same-origin',
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36'
-        }
-        
-        # 預熱請求
-        try:
-            self.session.get('https://gmgn.ai/', headers=self.headers, timeout=30)
-            time.sleep(2)
-        except Exception as e:
-            print(f"Session initialization warning: {str(e)}")
+        while self.retry_count < 3:  # 最多嘗試初始化3次
+            try:
+                self.session = cloudscraper.create_scraper(
+                    browser={
+                        'browser': 'chrome',
+                        'platform': 'windows',
+                        'desktop': True
+                    },
+                    debug=False
+                )
+                
+                # 更新請求頭，添加更多真實瀏覽器特徵
+                self.headers = {
+                    'authority': 'gmgn.ai',
+                    'accept': '*/*',
+                    'accept-language': 'en-US,en;q=0.9,zh-TW;q=0.8,zh;q=0.7',
+                    'cache-control': 'no-cache',
+                    'content-type': 'application/json',
+                    'origin': 'https://gmgn.ai',
+                    'pragma': 'no-cache',
+                    'referer': 'https://gmgn.ai/',
+                    'sec-ch-ua': '"Google Chrome";v="119", "Chromium";v="119", "Not?A_Brand";v="24"',
+                    'sec-ch-ua-mobile': '?0',
+                    'sec-ch-ua-platform': '"Windows"',
+                    'sec-fetch-dest': 'empty',
+                    'sec-fetch-mode': 'cors',
+                    'sec-fetch-site': 'same-origin',
+                    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+                }
+                
+                # 預熱請求
+                response = self.session.get('https://gmgn.ai/', headers=self.headers, timeout=30)
+                if response.status_code == 200:
+                    print("Session initialized successfully")
+                    self.retry_count = 0  # 重置重試計數
+                    time.sleep(2)
+                    return
+                else:
+                    raise Exception(f"Initialization failed with status code: {response.status_code}")
+                    
+            except Exception as e:
+                self.retry_count += 1
+                print(f"Session initialization attempt {self.retry_count} failed: {str(e)}")
+                if self.retry_count < 3:
+                    time.sleep(5 * self.retry_count)  # 逐漸增加等待時間
+                else:
+                    print("Failed to initialize session after 3 attempts")
+                    raise
 
     def enforce_rate_limit(self):
         """強制執行請求速率限制"""
         current_time = time.time()
         time_since_last_request = current_time - self.last_request_time
         if time_since_last_request < self.min_request_interval:
-            sleep_time = self.min_request_interval - time_since_last_request
+            sleep_time = self.min_request_interval - time_since_last_request + random.uniform(0.1, 0.5)
             time.sleep(sleep_time)
         self.last_request_time = time.time()
 
@@ -92,10 +105,23 @@ class WalletAnalyzer:
                     timeout=30
                 )
 
+            # 打印響應信息用於調試
+            print(f"Response status: {response.status_code}")
+            print(f"Response headers: {dict(response.headers)}")
+
+            if response.status_code == 403:
+                print("Received 403 error, reinitializing session...")
+                self.initialize_session()
+                if retry_count < self.max_retries:
+                    time.sleep(5)  # 等待5秒後重試
+                    return self.make_request(url, method, params, data, retry_count + 1)
+                else:
+                    raise Exception("Maximum retries reached for 403 error")
+
             response.raise_for_status()
             return response.json()
 
-        except RequestException as e:
+        except Exception as e:
             if retry_count >= self.max_retries:
                 raise Exception(f"Maximum retries reached: {str(e)}")
 
@@ -103,11 +129,6 @@ class WalletAnalyzer:
             delay = min(300, self.base_delay * (2 ** retry_count) + random.uniform(0, 1))
             print(f"Request failed, retrying in {delay:.2f} seconds... (Attempt {retry_count + 1}/{self.max_retries})")
             time.sleep(delay)
-
-            # 如果遇到 403 錯誤，重新初始化會話
-            if isinstance(e, RequestException) and getattr(e.response, 'status_code', None) == 403:
-                print("Received 403 error, reinitializing session...")
-                self.initialize_session()
 
             return self.make_request(url, method, params, data, retry_count + 1)
             
@@ -309,6 +330,7 @@ class WalletAnalyzer:
     #====== 獲取交易記錄方法 ======
     def fetch_transactions(self, wallet_address):
         """獲取錢包交易記錄"""
+        print("Start fetching transactions...")
         transactions = []
         cursor = None
         current_time = datetime.now()
@@ -329,9 +351,14 @@ class WalletAnalyzer:
                 if cursor:
                     params["cursor"] = cursor
 
-                data = self.make_request(url, params=params)
+                print(f"Requesting URL: {url}")
+                print(f"With params: {params}")
                 
+                data = self.make_request(url, params=params)
+                print(f"Received response data: {json.dumps(data, indent=2)}")
+
                 if not data.get('data') or not data['data'].get('holdings'):
+                    print("No holdings data found in response")
                     break
 
                 for holding in data['data']['holdings']:
@@ -341,6 +368,7 @@ class WalletAnalyzer:
                     
                     last_active = datetime.fromtimestamp(last_active_timestamp)
                     if last_active < thirty_days_ago:
+                        print("Reached transactions older than 30 days")
                         return transactions
 
                     total_profit_pnl = holding.get('total_profit_pnl')
@@ -354,19 +382,22 @@ class WalletAnalyzer:
                                 '交易類型': '獲利' if total_profit_pnl > 0 else '虧損',
                                 'token': holding.get('token', {})
                             })
-                        except (ValueError, TypeError):
+                        except (ValueError, TypeError) as e:
+                            print(f"Error processing profit_pnl: {str(e)}")
                             continue
 
                 if 'next' in data['data'] and data['data']['next']:
                     cursor = data['data']['next']
-                    time.sleep(1)
+                    time.sleep(random.uniform(1.5, 2.5))  # 添加隨機延遲
                 else:
                     break
 
             except Exception as e:
-                print(f"Error fetching transactions: {str(e)}")
+                print(f"Error in fetch_transactions: {str(e)}")
+                print(f"Traceback: {traceback.format_exc()}")
                 raise
 
+        print(f"Successfully fetched {len(transactions)} transactions")
         return transactions
 
     #====== 分析交易數據方法 ======
