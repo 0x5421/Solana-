@@ -4,4 +4,3 @@ cloudscraper
 requests
 openpyxl
 python-dateutil
-nodejs
