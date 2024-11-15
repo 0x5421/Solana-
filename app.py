@@ -643,6 +643,7 @@ def main():
 
 # 如果按下分析按鈕
     if analyze_button and wallet_address:
+        st.write("開始初始化分析流程...")
         addresses = wallet_address.strip().split('\n')
         addresses = [addr.strip() for addr in addresses if addr.strip()]
         
@@ -651,50 +652,75 @@ def main():
             return
     
         analyzer = WalletAnalyzer()
-        last_address = None  # 記錄最後一個成功功分析的地址
+        last_address = None  # 記錄最後一個成功分析的地址
         
         for address in addresses:
-            with st.spinner(f'正在分析錢包 {address}...'):
-                try:
-                    st.write("開始發送請求...")
-                    transactions = analyzer.fetch_transactions(address)
-                    if isinstance(transactions, list):
-                        st.write(f"成功獲取交易數據，交易數量: {len(transactions)}")
-                    else:
-                        st.write(f"請求響應格式異常: {type(transactions)}")
-                    
-                    if not transactions:
-                        st.warning(f"無法獲取錢包 {address} 的交易記錄")
-                        continue
-    
-                    analysis = analyzer.analyze_transactions(transactions)
-                    st.write("完成基礎分析")
-                    
-                    token_analysis = analyzer.analyze_tokens_by_profit(address, transactions)
-                    st.write("完成代幣分析")
-                    
-                    advanced_results = analyzer.advanced_analysis(address, transactions, token_analysis)
-                    st.write("完成進階分析")
-                    
-                    # 保存分析結果到 session state
-                    st.session_state.analyzed_wallets[address] = {
-                        'analysis': analysis,
-                        'token_analysis': token_analysis,
-                        'advanced_results': advanced_results,
-                        'transactions': transactions
-                    }
-                    last_address = address
-                    
-                except Exception as e:
-                    st.error(f"分析錢包時發生錯誤: {str(e)}")
-                    import traceback
-                    st.error(f"詳細錯誤追蹤:\n{traceback.format_exc()}")
+            st.write(f"開始分析錢包: {address}")
+            try:
+                st.write("開始發送請求...")
+                transactions = analyzer.fetch_transactions(address)
+                
+                if isinstance(transactions, list):
+                    st.write(f"成功獲取交易數據，交易數量: {len(transactions)}")
+                else:
+                    st.write(f"請求響應格式異常: {type(transactions)}")
+                    continue
+                
+                if not transactions:
+                    st.warning(f"無法獲取錢包 {address} 的交易記錄")
                     continue
     
-            # 分析完成後，設置最後一個地址為當前分析
-            if last_address:
-                st.session_state.current_analysis = last_address
-                st.rerun()  # 強制頁面重新運行
+                st.write("開始進行基礎分析...")
+                analysis = analyzer.analyze_transactions(transactions)
+                if analysis:
+                    st.write("完成基礎分析")
+                else:
+                    st.error("基礎分析失敗")
+                    continue
+                
+                st.write("開始進行代幣分析...")
+                try:
+                    token_analysis = analyzer.analyze_tokens_by_profit(address, transactions)
+                    st.write("完成代幣分析")
+                except Exception as e:
+                    st.error(f"代幣分析過程中發生錯誤: {str(e)}")
+                    continue
+                
+                st.write("開始進行進階分析...")
+                try:
+                    advanced_results = analyzer.advanced_analysis(address, transactions, token_analysis)
+                    st.write("完成進階分析")
+                except Exception as e:
+                    st.error(f"進階分析過程中發生錯誤: {str(e)}")
+                    continue
+                
+                # 保存分析結果到 session state
+                st.session_state.analyzed_wallets[address] = {
+                    'analysis': analysis,
+                    'token_analysis': token_analysis,
+                    'advanced_results': advanced_results,
+                    'transactions': transactions
+                }
+                last_address = address
+                st.write(f"完成錢包 {address} 的分析")
+                
+            except Exception as e:
+                st.error(f"分析錢包時發生錯誤: {str(e)}")
+                import traceback
+                st.error(f"詳細錯誤追蹤:\n{traceback.format_exc()}")
+                continue
+    
+            # 顯示處理進度
+            st.write("---")
+    
+        # 分析完成後，設置最後一個成功的地址為當前分析
+        if last_address:
+            st.session_state.current_analysis = last_address
+            st.write("準備更新顯示結果...")
+            time.sleep(1)  # 給一點時間讓用戶看到進度
+            st.rerun()  # 強制頁面重新運行
+        else:
+            st.error("所有錢包分析均失敗，請檢查輸入地址或稍後重試")
 
 if __name__ == "__main__":
     main()
