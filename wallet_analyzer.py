@@ -240,23 +240,15 @@ class WalletAnalyzer:
 
     #====== 獲取交易記錄方法 ======
     def fetch_transactions(self, wallet_address):
-        """
-        獲取指定錢包地址的交易記錄
-        
-        Args:
-            wallet_address (str): 錢包地址
-            
-        Returns:
-            list: 交易記錄列表
-        """
+        """獲取指定錢包地址的交易記錄"""
+        st.write("開始獲取交易記錄...")
         transactions = []
         cursor = None
         current_time = datetime.now()
         thirty_days_ago = current_time - timedelta(days=30)
         max_retries = 3
-        retry_delay = 10
-        retry_count = 0
-
+        retry_delay = 10  # 初始重試延遲時間
+    
         while True:
             try:
                 # 設置 API 請求參數
@@ -270,19 +262,28 @@ class WalletAnalyzer:
                     "tx30d": "true"
                 }
                 
-                # 如果有游標，添加到參數中
                 if cursor:
                     params["cursor"] = cursor
-
+    
+                st.write(f"請求 URL: {url}")
+                st.write(f"請求參數: {params}")
+                st.write(f"請求頭: {self.headers}")
+    
                 # 發送請求
                 response = self.scraper.get(url, params=params, headers=self.headers, timeout=30)
-                response.raise_for_status()
+                
+                st.write(f"響應狀態碼: {response.status_code}")
+                st.write(f"響應頭: {dict(response.headers)}")
+    
+                response.raise_for_status()  # 拋出非 200 響應的異常
                 data = response.json()
-
+                st.write(f"響應數據: {data}")
+    
                 # 檢查數據有效性
                 if not data.get('data') or not data['data'].get('holdings'):
+                    st.write("響應數據為空或格式不正確")
                     break
-
+    
                 # 處理每個交易記錄
                 for holding in data['data']['holdings']:
                     last_active_timestamp = holding.get('last_active_timestamp')
@@ -295,7 +296,7 @@ class WalletAnalyzer:
                     # 只獲取30天內的交易
                     if last_active < thirty_days_ago:
                         return transactions
-
+    
                     # 獲取交易收益率
                     total_profit_pnl = holding.get('total_profit_pnl')
                     if total_profit_pnl is not None:
@@ -313,35 +314,44 @@ class WalletAnalyzer:
                             })
                         except (ValueError, TypeError):
                             continue
-
+    
                 # 檢查是否有下一頁
                 if 'next' in data['data'] and data['data']['next']:
                     cursor = data['data']['next']
                     time.sleep(1)  # 添加請求間隔
                 else:
                     break
-
-                # 成功獲取數據後重置重試計數
-                retry_count = 0
-
-            except Exception as e:
-                if retry_count < max_retries:
-                    retry_count += 1
-                    wait_time = retry_delay * retry_count  # 逐次增加等待時間
-                    
-                    # 特別處理 429 錯誤
-                    if '429' in str(e):
-                        print(f"\n請求過多(429)，等待 {wait_time} 秒後重試... ({retry_count}/{max_retries})")
-                    else:
-                        print(f"\n獲取交易記錄時發生錯誤: {str(e)}")
-                        print(f"等待 {wait_time} 秒後重試...（{retry_count}/{max_retries}）")
-                    
-                    time.sleep(wait_time)
+    
+            except requests.exceptions.HTTPError as e:
+                st.error(f"HTTP 錯誤: {str(e)}")
+                if max_retries > 0:
+                    max_retries -= 1
+                    st.write(f"重試中... 剩餘 {max_retries} 次")
+                    time.sleep(retry_delay)
                     continue
-                else:
-                    print(f"\n達到最大重試次數，跳過錢包地址: {wallet_address}")
-                    break
-
+                break
+                
+            except requests.exceptions.RequestException as e:
+                st.error(f"請求異常: {str(e)}")
+                if max_retries > 0:
+                    max_retries -= 1
+                    st.write(f"重試中... 剩餘 {max_retries} 次")
+                    time.sleep(retry_delay)
+                    continue
+                break
+                
+            except Exception as e:
+                st.error(f"其他錯誤: {str(e)}")
+                import traceback
+                st.error(f"詳細錯誤: {traceback.format_exc()}")
+                if max_retries > 0:
+                    max_retries -= 1
+                    st.write(f"重試中... 剩餘 {max_retries} 次")
+                    time.sleep(retry_delay)
+                    continue
+                break
+    
+        st.write(f"獲取到 {len(transactions)} 筆交易記錄")
         return transactions
 
     #====== 分析交易數據方法 ======
