@@ -1,4 +1,5 @@
 #====== 導入所需套件 ======
+import streamlit as st  # 新增這行在最上方
 import cloudscraper
 import json
 import pandas as pd
