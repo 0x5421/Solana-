@@ -383,114 +383,97 @@ class WalletAnalyzer:
     #====== 分析代幣收益情況方法 ======
     def analyze_tokens_by_profit(self, wallet_address, transactions):
         """分析代幣收益情況方法"""
+        st.write("開始進行代幣分析...")
         profit_tokens = {}
         loss_tokens = {}
         failed_tokens = []
         total_quick_trades = 0
-        bot_trades = []  # 保存快速交易詳情
-        rug_count = 0  # 用於計算Rug盤數量
-        total_tokens = 0  # 用於計算代幣總數
-        processed_tokens = set()  # 用於追蹤已處理的代幣
-        
+        bot_trades = []
+        rug_count = 0
+        total_tokens = 0
+        processed_tokens = set()
+    
         # 使用實際的交易記錄數量
         total_trades = len(transactions)
-        
-        # 獲取5倍爆擊率
+        st.write(f"總交易數量: {total_trades}")
+    
         try:
-            response = self.scraper.get(
-                f"https://gmgn.ai/defi/quotation/v1/smartmoney/sol/walletNew/{wallet_address}",
-                params={"period": "30d"},
-                headers=self.headers
-            )
-            data = response.json()
-            print(f"API 返回5倍爆擊數據: {data}")  # 保留調試輸出
+            # 獲取5倍爆擊率
+            st.write("正在獲取5倍爆擊率數據...")
+            five_x_url = f"https://gmgn.ai/defi/quotation/v1/smartmoney/sol/walletNew/{wallet_address}"
+            st.write(f"請求 URL: {five_x_url}")
             
-            if 'data' in data and isinstance(data['data'], dict):
-                pnl_gt_5x_num = float(data['data'].get('pnl_gt_5x_num', 0))
-                
-                # 使用 total_trades 作為分母
-                # total_trades 是我們從交易記錄中計算出來的總交易次數
-                total_trades = total_trades  # 使用傳入的 total_trades 參數
-                
-                print(f"5倍爆擊次數: {pnl_gt_5x_num}")
-                print(f"總交易次數（自行計算）: {total_trades}")
-                
-                if total_trades > 0 and isinstance(pnl_gt_5x_num, (int, float)):
-                    five_x_rate = pnl_gt_5x_num / total_trades
+            response = self.scraper.get(
+                five_x_url,
+                params={"period": "30d"},
+                headers=self.headers,
+                timeout=30
+            )
+            st.write(f"5倍爆擊率 API 響應狀態: {response.status_code}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                st.write("成功獲取5倍爆擊率數據")
+                st.write(f"API 返回數據: {data}")
+    
+                if 'data' in data and isinstance(data['data'], dict):
+                    pnl_gt_5x_num = float(data['data'].get('pnl_gt_5x_num', 0))
+                    st.write(f"5倍爆擊次數: {pnl_gt_5x_num}")
+                    
+                    if total_trades > 0 and isinstance(pnl_gt_5x_num, (int, float)):
+                        five_x_rate = pnl_gt_5x_num / total_trades
+                        st.write(f"計算出的5倍爆擊率: {five_x_rate*100:.2f}%")
+                    else:
+                        st.write(f"無效的數據: pnl_gt_5x_num = {pnl_gt_5x_num}, total_trades = {total_trades}")
+                        five_x_rate = 0.0
                 else:
-                    print(f"無效的數據: pnl_gt_5x_num = {pnl_gt_5x_num}, total_trades = {total_trades}")
+                    st.write("API返回數據格式異常")
                     five_x_rate = 0.0
             else:
-                print(f"API返回數據格式異常: {data}")
+                st.error(f"獲取5倍爆擊率失敗，狀態碼: {response.status_code}")
                 five_x_rate = 0.0
+                
         except Exception as e:
-            print(f"獲取5倍爆擊率時發生錯誤: {str(e)}")
+            st.error(f"獲取5倍爆擊率時發生錯誤: {str(e)}")
+            import traceback
+            st.error(f"詳細錯誤:\n{traceback.format_exc()}")
             five_x_rate = 0.0
-
-        print(f"最終計算的5倍爆擊率: {five_x_rate*100:.2f}%")  # 保留最終結果輸出
-        
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            future_to_token = {}
-            
-            # 首先計算 Rug 盤比例
+    
+        st.write("開始分析個別代幣...")
+        with st.spinner('處理中...'):
+            processed_count = 0
             for tx in transactions:
-                if 'token' not in tx or 'address' not in tx['token']:
-                    continue
-                    
-                token_address = tx['token']['address']
-                
-                # 如果已經處理過這個代幣，跳過
-                if token_address in processed_tokens:
-                    continue
-                
-                processed_tokens.add(token_address)
-                total_tokens += 1
-                
-                # 檢查是否為 Rug 盤
-                if tx['token'].get('is_show_alert') is True:
-                    rug_count += 1
-                
                 try:
-                    # 同時獲取市值和交易模式
-                    market_cap_future = executor.submit(
-                        self.get_token_first_buy_marketcap,
-                        wallet_address,
-                        token_address
-                    )
-                    
-                    trading_pattern_future = executor.submit(
-                        self.analyze_trading_pattern,
-                        wallet_address,
-                        token_address
-                    )
-                    
-                    future_to_token[market_cap_future] = (token_address, tx, trading_pattern_future)
-                except Exception as e:
-                    print(f"提交任務時發生錯誤 ({token_address}): {str(e)}")
-                    continue
-            
-            # 處理所有完成的任務
-            for market_cap_future in concurrent.futures.as_completed(future_to_token):
-                token_address, tx, trading_pattern_future = future_to_token[market_cap_future]
-                
-                try:
-                    market_cap, timestamp = market_cap_future.result()
-                    trading_pattern = trading_pattern_future.result()
-                    
-                    # 處理交易模式數據
-                    if trading_pattern and isinstance(trading_pattern, dict):
+                    if 'token' not in tx or 'address' not in tx['token']:
+                        continue
+    
+                    token_address = tx['token']['address']
+                    if token_address in processed_tokens:
+                        continue
+    
+                    processed_tokens.add(token_address)
+                    total_tokens += 1
+                    processed_count += 1
+    
+                    if processed_count % 10 == 0:  # 每處理10個代幣顯示一次進度
+                        st.write(f"已處理 {processed_count} 個代幣...")
+    
+                    if tx['token'].get('is_show_alert') is True:
+                        rug_count += 1
+                        st.write(f"發現 Rug 代幣: {tx['token'].get('symbol', 'Unknown')}")
+    
+                    # 分析交易模式
+                    trading_pattern = self.analyze_trading_pattern(wallet_address, token_address)
+                    if trading_pattern:
                         quick_trades = trading_pattern.get('quick_trades', 0)
                         total_quick_trades += quick_trades
-                        
-                        # 處理快速交易詳情
                         if trading_pattern.get('quick_trade_details'):
-                            for detail in trading_pattern['quick_trade_details']:
-                                if isinstance(detail, dict):
-                                    detail['buy_market_cap'] = market_cap
-                                    bot_trades.append(detail)
+                            bot_trades.extend(trading_pattern['quick_trade_details'])
+    
+                    # 獲取市值
+                    market_cap, timestamp = self.get_token_first_buy_marketcap(wallet_address, token_address)
                     
-                    # 只在市值有效時添加到代幣列表
-                    if market_cap is not None and not isinstance(market_cap, str) and isinstance(market_cap, (int, float)):
+                    if market_cap is not None and isinstance(market_cap, (int, float)):
                         token_data = {
                             'symbol': tx.get('代幣名稱', 'Unknown'),
                             'market_cap': market_cap,
@@ -502,76 +485,28 @@ class WalletAnalyzer:
                             profit_tokens[token_address] = token_data
                         else:
                             loss_tokens[token_address] = token_data
-                    else:
-                        failed_tokens.append((token_address, tx))
-                    
+    
                 except Exception as e:
-                    print(f"處理代幣 {token_address} 時發生錯誤: {str(e)}")
+                    st.error(f"處理代幣 {tx.get('代幣名稱', 'Unknown')} 時發生錯誤: {str(e)}")
                     failed_tokens.append((token_address, tx))
                     continue
-
-            # 重試失敗的代幣
-            if failed_tokens:
-                print(f"\n開始重試 {len(failed_tokens)} 個失敗的代幣...")
-                retry_tokens = failed_tokens.copy()
-                failed_tokens.clear()
-                
-                time.sleep(10)  # 等待10秒後重試
-                
-                for token_address, tx in retry_tokens:
-                    try:
-                        market_cap, timestamp = self.get_token_first_buy_marketcap(wallet_address, token_address)
-                        trading_pattern = self.analyze_trading_pattern(wallet_address, token_address)
-                        
-                        if market_cap is not None and not isinstance(market_cap, str) and isinstance(market_cap, (int, float)):
-                            token_data = {
-                                'symbol': tx.get('代幣名稱', 'Unknown'),
-                                'market_cap': market_cap,
-                                'timestamp': timestamp,
-                                'profit_rate': tx.get('收益率', 0)
-                            }
-                            
-                            if tx.get('收益率', 0) > 0:
-                                profit_tokens[token_address] = token_data
-                            else:
-                                loss_tokens[token_address] = token_data
-                                
-                            if trading_pattern and isinstance(trading_pattern, dict):
-                                total_quick_trades += trading_pattern.get('quick_trades', 0)
-                                if trading_pattern.get('quick_trade_details'):
-                                    for detail in trading_pattern['quick_trade_details']:
-                                        if isinstance(detail, dict):
-                                            detail['buy_market_cap'] = market_cap
-                                            bot_trades.append(detail)
-                        else:
-                            failed_tokens.append((token_address, tx))
-                    except Exception as e:
-                        print(f"重試處理代幣 {token_address} 時發生錯誤: {str(e)}")
-                        failed_tokens.append((token_address, tx))
-
-        # 計算最終的比率
-        bot_ratio = total_quick_trades / total_trades * 100 if total_trades > 0 else 0
-        rug_ratio = rug_count / total_tokens if total_tokens > 0 else 0
-
-        # 打印驗證信息
-        print(f"\nBot交易統計驗證：")
-        print(f"總交易次數（實際）: {total_trades}")
-        print(f"快速交易次數: {total_quick_trades}")
-        print(f"計算出的Bot機率: {bot_ratio:.4f}%")
-        print(f"Rug盤比例: {rug_ratio*100:.4f}%")
-        print(f"5倍爆擊率: {five_x_rate*100:.4f}%")
-
+    
+        st.write(f"代幣分析完成，總計處理 {processed_count} 個代幣")
+        st.write(f"獲利代幣數量: {len(profit_tokens)}")
+        st.write(f"虧損代幣數量: {len(loss_tokens)}")
+        st.write(f"Rug代幣數量: {rug_count}")
+        st.write(f"快速交易次數: {total_quick_trades}")
+    
         return {
             'profit_tokens': profit_tokens,
             'loss_tokens': loss_tokens,
-            'rug_ratio': rug_ratio,
+            'rug_ratio': rug_count / total_tokens if total_tokens > 0 else 0,
             'five_x_rate': five_x_rate,
-            'quick_trade_ratio': bot_ratio,
+            'quick_trade_ratio': total_quick_trades / total_trades * 100 if total_trades > 0 else 0,
             'quick_trade_details': bot_trades,
             'total_trades': total_trades,
             'total_quick_trades': total_quick_trades
         }
-
     #====== 保存到Excel方法 ======
     def save_to_excel(self, wallet_address, transactions, analysis, token_analysis, advanced_analysis):
         if not transactions:
