@@ -1,6 +1,6 @@
 streamlit
 pandas
-cloudscraper
-requests
+cloudscraper>=1.2.71
+requests>=2.31.0
 openpyxl
 python-dateutil
