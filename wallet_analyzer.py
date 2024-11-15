@@ -24,25 +24,36 @@ class WalletAnalyzer:
                 'browser': 'chrome',
                 'platform': 'windows',
                 'mobile': False,
-                'desktop': True
-            },
-            debug=True  # 添加調試信息
+                'desktop': True,
+                'cloud_platform': False  # 添加這行
+            }
         )
+        
+        # 更新 headers
         self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-            'Origin': 'https://gmgn.ai',
-            'Referer': 'https://gmgn.ai/',
-            'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-            'Sec-Ch-Ua-Mobile': '?0',
-            'Sec-Ch-Ua-Platform': '"Windows"',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin'
+            'authority': 'gmgn.ai',
+            'accept': 'application/json, text/plain, */*',
+            'accept-language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+            'cache-control': 'no-cache',
+            'origin': 'https://gmgn.ai',
+            'pragma': 'no-cache',
+            'referer': 'https://gmgn.ai/',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-origin',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
+    
+        # 先訪問主頁
+        try:
+            self.scraper.get('https://gmgn.ai/', headers=self.headers, timeout=30)
+            time.sleep(2)
+        except Exception as e:
+            print(f"初始化訪問失敗: {str(e)}")
+            
     #====== 獲取代幣首次購買市值方法 ======
     def get_token_first_buy_marketcap(self, wallet_address, token_address):
         """獲取代幣首次購買市值方法"""
