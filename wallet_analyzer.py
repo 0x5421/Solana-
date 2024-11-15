@@ -32,16 +32,17 @@ class WalletAnalyzer:
                         'platform': 'windows',
                         'desktop': True
                     },
-                    debug=False
+                    debug=True  # 開啟調試模式
                 )
                 
-                # 更新請求頭，添加更多真實瀏覽器特徵
+                # 更新請求頭，模擬更真實的瀏覽器行為
                 self.headers = {
                     'authority': 'gmgn.ai',
                     'accept': '*/*',
                     'accept-language': 'en-US,en;q=0.9,zh-TW;q=0.8,zh;q=0.7',
                     'cache-control': 'no-cache',
                     'content-type': 'application/json',
+                    'dnt': '1',
                     'origin': 'https://gmgn.ai',
                     'pragma': 'no-cache',
                     'referer': 'https://gmgn.ai/',
@@ -51,27 +52,51 @@ class WalletAnalyzer:
                     'sec-fetch-dest': 'empty',
                     'sec-fetch-mode': 'cors',
                     'sec-fetch-site': 'same-origin',
-                    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+                    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+                    'x-requested-with': 'XMLHttpRequest'
                 }
+    
+                print("嘗試訪問首頁...")
+                # 首先訪問首頁
+                response = self.session.get(
+                    'https://gmgn.ai/',
+                    headers=self.headers,
+                    timeout=30,
+                    allow_redirects=True
+                )
                 
-                # 預熱請求
-                response = self.session.get('https://gmgn.ai/', headers=self.headers, timeout=30)
+                print(f"首頁響應狀態碼: {response.status_code}")
+                print(f"首頁響應頭: {dict(response.headers)}")
+                
                 if response.status_code == 200:
                     print("Session initialized successfully")
                     self.retry_count = 0  # 重置重試計數
                     time.sleep(2)
                     return
                 else:
+                    print(f"初始化失敗，狀態碼: {response.status_code}")
+                    print(f"響應內容: {response.text[:500]}")  # 只打印前500個字符
+                    
+                    if response.status_code == 403:
+                        print("檢測到 Cloudflare 防護，等待更長時間...")
+                        time.sleep(10)  # 遇到 403 時等待更長時間
+                    
                     raise Exception(f"Initialization failed with status code: {response.status_code}")
                     
             except Exception as e:
                 self.retry_count += 1
                 print(f"Session initialization attempt {self.retry_count} failed: {str(e)}")
                 if self.retry_count < 3:
-                    time.sleep(5 * self.retry_count)  # 逐漸增加等待時間
+                    sleep_time = 5 * self.retry_count  # 逐漸增加等待時間
+                    print(f"Waiting {sleep_time} seconds before retry...")
+                    time.sleep(sleep_time)
                 else:
                     print("Failed to initialize session after 3 attempts")
-                    raise
+                    # 不要拋出異常，而是使用備用方案
+                    print("Using backup initialization...")
+                    self.session = cloudscraper.create_scraper()
+                    self.retry_count = 0
+                    return
 
     def enforce_rate_limit(self):
         """強制執行請求速率限制"""
