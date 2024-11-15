@@ -19,40 +19,97 @@ import requests
 #====== 錢包分析器類初始化 ======
 class WalletAnalyzer:
     def __init__(self):
-        self.scraper = cloudscraper.create_scraper(
+        self.session = None
+        self.last_request_time = 0
+        self.min_request_interval = 2  # 最小請求間隔（秒）
+        self.max_retries = 5  # 最大重試次數
+        self.base_delay = 3  # 基礎延遲時間（秒）
+        self.initialize_session()
+
+    def initialize_session(self):
+        """初始化會話並進行必要的準備工作"""
+        self.session = cloudscraper.create_scraper(
             browser={
                 'browser': 'chrome',
                 'platform': 'windows',
-                'mobile': False,
-                'desktop': True,
-                'cloud_platform': False  # 添加這行
-            }
+                'desktop': True
+            },
+            debug=False
         )
         
-        # 更新 headers
+        # 更新請求頭，添加更多真實瀏覽器特徵
         self.headers = {
             'authority': 'gmgn.ai',
             'accept': 'application/json, text/plain, */*',
-            'accept-language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+            'accept-language': 'en-US,en;q=0.9',
             'cache-control': 'no-cache',
             'origin': 'https://gmgn.ai',
             'pragma': 'no-cache',
             'referer': 'https://gmgn.ai/',
-            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120"',
+            'sec-ch-ua': '"Chromium";v="118", "Google Chrome";v="118"',
             'sec-ch-ua-mobile': '?0',
             'sec-ch-ua-platform': '"Windows"',
             'sec-fetch-dest': 'empty',
             'sec-fetch-mode': 'cors',
             'sec-fetch-site': 'same-origin',
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36'
         }
-    
-        # 先訪問主頁
+        
+        # 預熱請求
         try:
-            self.scraper.get('https://gmgn.ai/', headers=self.headers, timeout=30)
+            self.session.get('https://gmgn.ai/', headers=self.headers, timeout=30)
             time.sleep(2)
         except Exception as e:
-            print(f"初始化訪問失敗: {str(e)}")
+            print(f"Session initialization warning: {str(e)}")
+
+    def enforce_rate_limit(self):
+        """強制執行請求速率限制"""
+        current_time = time.time()
+        time_since_last_request = current_time - self.last_request_time
+        if time_since_last_request < self.min_request_interval:
+            sleep_time = self.min_request_interval - time_since_last_request
+            time.sleep(sleep_time)
+        self.last_request_time = time.time()
+
+    def make_request(self, url, method='get', params=None, data=None, retry_count=0):
+        """發送請求並處理可能的錯誤"""
+        self.enforce_rate_limit()
+
+        try:
+            if method.lower() == 'get':
+                response = self.session.get(
+                    url,
+                    params=params,
+                    headers=self.headers,
+                    timeout=30
+                )
+            else:
+                response = self.session.post(
+                    url,
+                    params=params,
+                    json=data,
+                    headers=self.headers,
+                    timeout=30
+                )
+
+            response.raise_for_status()
+            return response.json()
+
+        except RequestException as e:
+            if retry_count >= self.max_retries:
+                raise Exception(f"Maximum retries reached: {str(e)}")
+
+            # 計算延遲時間（指數退避）
+            delay = min(300, self.base_delay * (2 ** retry_count) + random.uniform(0, 1))
+            print(f"Request failed, retrying in {delay:.2f} seconds... (Attempt {retry_count + 1}/{self.max_retries})")
+            time.sleep(delay)
+
+            # 如果遇到 403 錯誤，重新初始化會話
+            if isinstance(e, RequestException) and getattr(e.response, 'status_code', None) == 403:
+                print("Received 403 error, reinitializing session...")
+                self.initialize_session()
+
+            return self.make_request(url, method, params, data, retry_count + 1)
             
     #====== 獲取代幣首次購買市值方法 ======
     def get_token_first_buy_marketcap(self, wallet_address, token_address):
@@ -251,18 +308,14 @@ class WalletAnalyzer:
 
     #====== 獲取交易記錄方法 ======
     def fetch_transactions(self, wallet_address):
-        """獲取指定錢包地址的交易記錄"""
-        st.write("開始獲取交易記錄...")
+        """獲取錢包交易記錄"""
         transactions = []
         cursor = None
         current_time = datetime.now()
         thirty_days_ago = current_time - timedelta(days=30)
-        max_retries = 3
-        retry_delay = 10  # 初始重試延遲時間
-    
+
         while True:
             try:
-                # 設置 API 請求參數
                 url = f"https://gmgn.ai/api/v1/wallet_holdings/sol/{wallet_address}"
                 params = {
                     "limit": "50",
@@ -275,47 +328,25 @@ class WalletAnalyzer:
                 
                 if cursor:
                     params["cursor"] = cursor
-    
-                st.write(f"請求 URL: {url}")
-                st.write(f"請求參數: {params}")
-                st.write(f"請求頭: {self.headers}")
-    
-                # 發送請求
-                response = self.scraper.get(url, params=params, headers=self.headers, timeout=30)
+
+                data = self.make_request(url, params=params)
                 
-                st.write(f"響應狀態碼: {response.status_code}")
-                st.write(f"響應頭: {dict(response.headers)}")
-    
-                response.raise_for_status()  # 拋出非 200 響應的異常
-                data = response.json()
-                st.write(f"響應數據: {data}")
-    
-                # 檢查數據有效性
                 if not data.get('data') or not data['data'].get('holdings'):
-                    st.write("響應數據為空或格式不正確")
                     break
-    
-                # 處理每個交易記錄
+
                 for holding in data['data']['holdings']:
                     last_active_timestamp = holding.get('last_active_timestamp')
                     if not isinstance(last_active_timestamp, (int, float)):
                         continue
-                        
-                    # 轉換時間戳
-                    last_active = datetime.fromtimestamp(last_active_timestamp)
                     
-                    # 只獲取30天內的交易
+                    last_active = datetime.fromtimestamp(last_active_timestamp)
                     if last_active < thirty_days_ago:
                         return transactions
-    
-                    # 獲取交易收益率
+
                     total_profit_pnl = holding.get('total_profit_pnl')
                     if total_profit_pnl is not None:
                         try:
-                            # 轉換收益率為浮點數
                             total_profit_pnl = float(total_profit_pnl)
-                            
-                            # 構建交易記錄
                             transactions.append({
                                 '時間戳': last_active.strftime('%Y-%m-%d %H:%M:%S'),
                                 '代幣名稱': holding.get('token', {}).get('symbol', 'Unknown'),
@@ -325,44 +356,17 @@ class WalletAnalyzer:
                             })
                         except (ValueError, TypeError):
                             continue
-    
-                # 檢查是否有下一頁
+
                 if 'next' in data['data'] and data['data']['next']:
                     cursor = data['data']['next']
-                    time.sleep(1)  # 添加請求間隔
+                    time.sleep(1)
                 else:
                     break
-    
-            except requests.exceptions.HTTPError as e:
-                st.error(f"HTTP 錯誤: {str(e)}")
-                if max_retries > 0:
-                    max_retries -= 1
-                    st.write(f"重試中... 剩餘 {max_retries} 次")
-                    time.sleep(retry_delay)
-                    continue
-                break
-                
-            except requests.exceptions.RequestException as e:
-                st.error(f"請求異常: {str(e)}")
-                if max_retries > 0:
-                    max_retries -= 1
-                    st.write(f"重試中... 剩餘 {max_retries} 次")
-                    time.sleep(retry_delay)
-                    continue
-                break
-                
+
             except Exception as e:
-                st.error(f"其他錯誤: {str(e)}")
-                import traceback
-                st.error(f"詳細錯誤: {traceback.format_exc()}")
-                if max_retries > 0:
-                    max_retries -= 1
-                    st.write(f"重試中... 剩餘 {max_retries} 次")
-                    time.sleep(retry_delay)
-                    continue
-                break
-    
-        st.write(f"獲取到 {len(transactions)} 筆交易記錄")
+                print(f"Error fetching transactions: {str(e)}")
+                raise
+
         return transactions
 
     #====== 分析交易數據方法 ======
