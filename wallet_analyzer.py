@@ -12,7 +12,7 @@ import random  # 新增這行
 import concurrent.futures
 from openpyxl import Workbook
 
-class ImprovedWalletAnalyzer:
+class WalletAnalyzer:
     def __init__(self):
         self.session = None
         self.last_request_time = 0
