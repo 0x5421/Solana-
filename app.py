@@ -651,7 +651,15 @@ def main():
             st.error("請輸入至少一個有效的錢包地址")
             return
     
-        analyzer = WalletAnalyzer()
+        try:
+            analyzer = WalletAnalyzer()
+            st.write("初始化成功")
+        except Exception as e:
+            st.error(f"初始化分析器失敗: {str(e)}")
+            st.info("正在嘗試使用備用方案...")
+            time.sleep(5)
+            analyzer = WalletAnalyzer()  # 再次嘗試初始化
+    
         last_address = None  # 記錄最後一個成功分析的地址
         
         for address in addresses:
