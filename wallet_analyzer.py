@@ -32,7 +32,11 @@ class WalletAnalyzer:
                         'platform': 'windows',
                         'desktop': True
                     },
-                    debug=True  # 開啟調試模式
+                    debug=True,  # 開啟調試模式
+                    defaults={
+                        'timeout': 30,
+                        'allow_redirects': True
+                    }
                 )
                 
                 # 更新請求頭，模擬更真實的瀏覽器行為
@@ -94,7 +98,12 @@ class WalletAnalyzer:
                     print("Failed to initialize session after 3 attempts")
                     # 不要拋出異常，而是使用備用方案
                     print("Using backup initialization...")
-                    self.session = cloudscraper.create_scraper()
+                    self.session = cloudscraper.create_scraper(
+                        defaults={
+                            'timeout': 30,
+                            'allow_redirects': True
+                        }
+                    )
                     self.retry_count = 0
                     return
 
@@ -353,14 +362,23 @@ class WalletAnalyzer:
     #====== 獲取交易記錄方法 ======
     def fetch_transactions(self, wallet_address):
         """獲取錢包交易記錄"""
-        print("Start fetching transactions...")
+        st.write("開始獲取交易記錄...")
         transactions = []
         cursor = None
         current_time = datetime.now()
         thirty_days_ago = current_time - timedelta(days=30)
-
-        while True:
+        
+        # 添加進度條
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        retry_count = 0
+        max_retries = 3
+        
+        while retry_count < max_retries:
             try:
+                status_text.text(f"正在嘗試第 {retry_count + 1} 次獲取數據...")
+                
                 url = f"https://gmgn.ai/api/v1/wallet_holdings/sol/{wallet_address}"
                 params = {
                     "limit": "50",
@@ -373,27 +391,35 @@ class WalletAnalyzer:
                 
                 if cursor:
                     params["cursor"] = cursor
-
-                print(f"Requesting URL: {url}")
-                print(f"With params: {params}")
                 
-                data = self.make_request(url, params=params)
-                print(f"Received response data: {json.dumps(data, indent=2)}")
-
+                # 設置較短的超時時間
+                response = self.session.get(
+                    url,
+                    params=params,
+                    headers=self.headers,
+                    timeout=10
+                )
+                
+                if response.status_code != 200:
+                    raise Exception(f"請求失敗，狀態碼: {response.status_code}")
+                
+                data = response.json()
+                
                 if not data.get('data') or not data['data'].get('holdings'):
-                    print("No holdings data found in response")
+                    status_text.text("未找到交易數據")
                     break
-
+                
                 for holding in data['data']['holdings']:
+                    # 處理數據...（保持原有的處理邏輯）
                     last_active_timestamp = holding.get('last_active_timestamp')
                     if not isinstance(last_active_timestamp, (int, float)):
                         continue
                     
                     last_active = datetime.fromtimestamp(last_active_timestamp)
                     if last_active < thirty_days_ago:
-                        print("Reached transactions older than 30 days")
+                        status_text.text("已獲取所有30天內的交易記錄")
                         return transactions
-
+                    
                     total_profit_pnl = holding.get('total_profit_pnl')
                     if total_profit_pnl is not None:
                         try:
@@ -406,21 +432,31 @@ class WalletAnalyzer:
                                 'token': holding.get('token', {})
                             })
                         except (ValueError, TypeError) as e:
-                            print(f"Error processing profit_pnl: {str(e)}")
+                            st.warning(f"處理交易數據時發生錯誤: {str(e)}")
                             continue
-
+                
                 if 'next' in data['data'] and data['data']['next']:
                     cursor = data['data']['next']
-                    time.sleep(random.uniform(1.5, 2.5))  # 添加隨機延遲
+                    progress_bar.progress(min(len(transactions) / 100, 1.0))  # 更新進度條
+                    time.sleep(1)  # 添加延遲避免請求過快
                 else:
                     break
-
+                
+                # 成功獲取數據，重置重試計數
+                retry_count = 0
+                
             except Exception as e:
-                print(f"Error in fetch_transactions: {str(e)}")
-                print(f"Traceback: {traceback.format_exc()}")
-                raise
-
-        print(f"Successfully fetched {len(transactions)} transactions")
+                retry_count += 1
+                if retry_count >= max_retries:
+                    st.error(f"獲取交易記錄失敗: {str(e)}")
+                    return []
+                
+                wait_time = 5 * retry_count
+                status_text.text(f"請求失敗，等待 {wait_time} 秒後重試...")
+                time.sleep(wait_time)
+        
+        status_text.text(f"成功獲取 {len(transactions)} 筆交易記錄")
+        progress_bar.empty()  # 清除進度條
         return transactions
 
     #====== 分析交易數據方法 ======
