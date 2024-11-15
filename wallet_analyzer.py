@@ -22,16 +22,25 @@ class WalletAnalyzer:
             browser={
                 'browser': 'chrome',
                 'platform': 'windows',
+                'mobile': False,
                 'desktop': True
-            }
+            },
+            debug=True  # 添加調試信息
         )
-        # 更新 headers
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json',
+            'Accept': 'application/json, text/plain, */*',
             'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
             'Origin': 'https://gmgn.ai',
             'Referer': 'https://gmgn.ai/',
+            'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': '"Windows"',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin'
         }
 
     #====== 獲取代幣首次購買市值方法 ======
